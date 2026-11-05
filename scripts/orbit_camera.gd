@@ -40,7 +40,13 @@ func _apply() -> void:
 func fit(center: Vector3, radius: float) -> void:
 	radius = maxf(radius, 0.001)
 	target = center
-	distance = radius / sin(deg_to_rad(fov) * 0.5) * 1.15
+	# fov — вертикальный угол; на вертикальном экране (телефон) узким оказывается горизонтальный.
+	var vp := get_viewport().get_visible_rect().size
+	var aspect := vp.x / maxf(vp.y, 1.0)
+	var half := deg_to_rad(fov) * 0.5
+	if aspect < 1.0:
+		half = atan(tan(half) * aspect)
+	distance = radius / sin(half) * 1.15
 	yaw = deg_to_rad(35.0)
 	pitch = deg_to_rad(25.0)
 	near = maxf(distance * 0.002, 0.001)

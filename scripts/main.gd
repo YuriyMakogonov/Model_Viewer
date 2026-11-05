@@ -66,6 +66,13 @@ var panel_sep: VSeparator
 var b_open: Button
 var b_reset: Button
 var compact := false
+var b_panel: Button
+var drawer_header: HBoxContainer
+var drawer_layer: Control
+var drawer_backdrop: ColorRect
+var panel_open := true       # на ноутбуке — панель показана; на телефоне — шторка выдвинута
+var _layout_done := false
+var _drawer_tween: Tween
 var panel_margin: MarginContainer
 const COMPACT_WIDTH := 760.0
 
@@ -89,6 +96,17 @@ func _ready() -> void:
 		load_path(to_open)
 	else:
 		_start_load(func(): return MeshLoader.make_sample_torus(), {"name": "Пример: тор 56 × 16 мм", "size": 0})
+
+	# Параметры для проверки: --window 390x844 (размер окна в точках), --open-panel.
+	var wi := args.find("--window")
+	if wi >= 0 and wi + 1 < args.size():
+		var wh := args[wi + 1].split("x")
+		var k := get_window().content_scale_factor
+		get_window().size = Vector2i(int(wh[0].to_float() * k), int(wh[1].to_float() * k))
+	if "--open-panel" in args:
+		await get_tree().process_frame
+		await get_tree().process_frame
+		b_panel.button_pressed = true
 
 	var shot := args.find("--screenshot")
 	if shot >= 0 and shot + 1 < args.size():
@@ -234,6 +252,14 @@ func _build_ui() -> void:
 	b_reset.pressed.connect(func(): camera.reset_view())
 	bar.add_child(b_reset)
 
+	b_panel = Button.new()
+	b_panel.text = "Данные"
+	b_panel.toggle_mode = true
+	b_panel.button_pressed = true
+	b_panel.tooltip_text = "Показать или скрыть панель с размерами и расчётом"
+	b_panel.toggled.connect(_on_panel_toggled)
+	bar.add_child(b_panel)
+
 	var view_wrap := SubViewportContainer.new()
 	view_wrap.stretch = true
 	view_wrap.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -293,6 +319,19 @@ func _build_ui() -> void:
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 14)
 	pm.add_child(col)
+
+	# Шапка выезжающей панели (только на узком экране): шторка закрывает панель инструментов.
+	drawer_header = HBoxContainer.new()
+	col.add_child(drawer_header)
+	var dh_title := Label.new()
+	dh_title.text = "Данные модели"
+	dh_title.add_theme_font_size_override("font_size", 16)
+	dh_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	drawer_header.add_child(dh_title)
+	var dh_close := Button.new()
+	dh_close.text = "Закрыть"
+	dh_close.pressed.connect(func(): b_panel.button_pressed = false)
+	drawer_header.add_child(dh_close)
 
 	# Файл
 	var g := _section(col, "Файл")
@@ -396,6 +435,19 @@ func _build_ui() -> void:
 	file_dialog.file_selected.connect(load_path)
 	add_child(file_dialog)
 
+	# Слой для выезжающей панели на узком экране: затемнение + панель справа.
+	drawer_layer = Control.new()
+	drawer_layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	drawer_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	drawer_layer.visible = false
+	add_child(drawer_layer)
+	drawer_backdrop = ColorRect.new()
+	drawer_backdrop.color = Color(0, 0, 0, 0.45)
+	drawer_backdrop.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	drawer_backdrop.mouse_filter = Control.MOUSE_FILTER_STOP
+	drawer_backdrop.gui_input.connect(_on_backdrop_input)
+	drawer_layer.add_child(drawer_backdrop)
+
 
 func _header(parent: Control, text: String) -> void:
 	var box := VBoxContainer.new()
@@ -449,7 +501,7 @@ func _field(g: GridContainer, title: String, control: Control) -> void:
 	k.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	k.tooltip_text = title
 	g.add_child(k)
-	control.custom_minimum_size.x = maxf(control.custom_minimum_size.x, 140)
+	control.custom_minimum_size.x = maxf(control.custom_minimum_size.x, 120)
 	if control is OptionButton:
 		(control as OptionButton).clip_text = true
 	control.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -486,22 +538,79 @@ func _spin(mn: float, mx: float, step: float, value: float, suffix: String) -> S
 	return s
 
 
-## Широкое окно: 3D слева, панель справа. Узкое (телефон, окно браузера): 3D сверху, панель снизу.
+## Широкое окно: панель данных стоит справа от 3D, кнопка «Данные» её скрывает.
+## Узкое окно (телефон): 3D на весь экран, панель выезжает справа поверх модели.
 func _update_layout() -> void:
 	var c := size.x < COMPACT_WIDTH
-	if c == compact and root_box.vertical == c:
+	if c == compact and _layout_done:
+		if compact:
+			_apply_panel(false)  # поворот экрана: пересчитать ширину шторки
 		return
+	_layout_done = true
 	compact = c
-	root_box.vertical = c
-	panel_sep.visible = not c
-	panel_node.custom_minimum_size.x = 0.0 if c else 380.0
-	panel_node.size_flags_horizontal = Control.SIZE_FILL
+	panel_node.get_parent().remove_child(panel_node)
+	if c:
+		drawer_layer.add_child(panel_node)
+		panel_open = false
+	else:
+		root_box.add_child(panel_node)
+		panel_open = true
+	b_panel.set_pressed_no_signal(panel_open)
+	drawer_header.visible = c
 	for side in ["left", "right"]:
-		panel_margin.add_theme_constant_override("margin_" + side, 12 if c else 18)
+		panel_margin.add_theme_constant_override("margin_" + side, 14 if c else 18)
 	b_open.text = "Открыть…" if c else "Открыть модель…"
 	b_reset.text = "Вид" if c else "Сбросить вид"
 	if model.is_empty() or status.text.begins_with("Левая") or status.text.begins_with("Один"):
 		status.text = _controls_help()
+	_apply_panel(false)
+
+
+func _on_panel_toggled(on: bool) -> void:
+	panel_open = on
+	_apply_panel(true)
+
+
+func _on_backdrop_input(event: InputEvent) -> void:
+	var tap: bool = (event is InputEventMouseButton and event.pressed) or (event is InputEventScreenTouch and event.pressed)
+	if tap and panel_open:
+		b_panel.button_pressed = false  # вызовет _on_panel_toggled
+		accept_event()
+
+
+func _apply_panel(animate: bool) -> void:
+	if _drawer_tween:
+		_drawer_tween.kill()
+	if not compact:
+		drawer_layer.visible = false
+		panel_node.custom_minimum_size = Vector2(380, 0)
+		panel_node.visible = panel_open
+		panel_sep.visible = panel_open
+		return
+
+	panel_sep.visible = false
+	var w := minf(size.x * 0.9, 400.0)
+	panel_node.custom_minimum_size = Vector2.ZERO
+	panel_node.size = Vector2(w, size.y)
+	var x_open := size.x - w
+	var x_closed := size.x
+	if panel_open:
+		drawer_layer.visible = true
+		panel_node.visible = true
+	if not animate:
+		panel_node.position = Vector2(x_open if panel_open else x_closed, 0)
+		drawer_backdrop.modulate.a = 1.0 if panel_open else 0.0
+		drawer_layer.visible = panel_open
+		return
+	_drawer_tween = create_tween().set_parallel(true).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	_drawer_tween.tween_property(panel_node, "position", Vector2(x_open if panel_open else x_closed, 0), 0.25)
+	_drawer_tween.tween_property(drawer_backdrop, "modulate:a", 1.0 if panel_open else 0.0, 0.25)
+	if not panel_open:
+		_drawer_tween.chain().tween_callback(_on_drawer_closed)
+
+
+func _on_drawer_closed() -> void:
+	drawer_layer.visible = false
 
 
 func _controls_help() -> String:
@@ -620,9 +729,11 @@ func _open_web_file_picker() -> void:
 		(function () {
 			var input = document.createElement('input');
 			input.type = 'file';
-			// На Android фильтр по расширению часто скрывает OBJ/STL (у них нет MIME-типа),
+			// На Android и iOS фильтр по расширению часто скрывает OBJ/STL (у них нет MIME-типа),
 			// поэтому там показываем все файлы, а формат проверяем после выбора.
-			if (!/Android/i.test(navigator.userAgent)) input.accept = '.obj,.stl,.OBJ,.STL';
+			var ua = navigator.userAgent;
+			var mobile = /Android|iPhone|iPad|iPod/i.test(ua) || (navigator.maxTouchPoints > 1 && /Macintosh/.test(ua));
+			if (!mobile) input.accept = '.obj,.stl,.OBJ,.STL';
 			input.onchange = function () {
 				var f = input.files && input.files[0];
 				if (!f) return;
