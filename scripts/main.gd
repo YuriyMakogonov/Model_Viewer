@@ -68,6 +68,9 @@ var b_reset: Button
 var compact := false
 var b_panel: Button
 var drawer_header: HBoxContainer
+var key_labels: Array[Label] = []
+var val_labels: Array[Label] = []
+var field_controls: Array[Control] = []
 var drawer_layer: Control
 var drawer_backdrop: ColorRect
 var panel_open := true       # на ноутбуке — панель показана; на телефоне — шторка выдвинута
@@ -478,6 +481,8 @@ func _kv(g: GridContainer, key: String, title: String, strong := false) -> void:
 	k.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	k.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	k.tooltip_text = title
+	k.set_meta("text_w", font_ui.get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, 14).x + 2)
+	key_labels.append(k)
 	g.add_child(k)
 	var val := Label.new()
 	val.text = "—"
@@ -487,7 +492,7 @@ func _kv(g: GridContainer, key: String, title: String, strong := false) -> void:
 	if strong:
 		val.add_theme_color_override("font_color", Color.WHITE)
 	val.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	val.custom_minimum_size = Vector2(120, 0)
+	val_labels.append(val)
 	val.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	g.add_child(val)
 	v[key] = val
@@ -500,10 +505,13 @@ func _field(g: GridContainer, title: String, control: Control) -> void:
 	k.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	k.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	k.tooltip_text = title
+	k.set_meta("text_w", font_ui.get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, 14).x + 2)
+	key_labels.append(k)
 	g.add_child(k)
-	control.custom_minimum_size.x = maxf(control.custom_minimum_size.x, 120)
+	field_controls.append(control)
 	if control is OptionButton:
 		(control as OptionButton).clip_text = true
+		(control as OptionButton).fit_to_longest_item = false
 	control.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	g.add_child(control)
 
@@ -557,6 +565,13 @@ func _update_layout() -> void:
 		panel_open = true
 	b_panel.set_pressed_no_signal(panel_open)
 	drawer_header.visible = c
+	# Минимальные ширины колонок: на ноутбуке подписи целиком, на телефоне всё сжимается.
+	for k in key_labels:
+		k.custom_minimum_size.x = minf(k.get_meta("text_w"), 105.0 if c else 140.0)
+	for l in val_labels:
+		l.custom_minimum_size.x = 95.0 if c else 120.0
+	for f in field_controls:
+		f.custom_minimum_size.x = 105.0 if c else 120.0
 	for side in ["left", "right"]:
 		panel_margin.add_theme_constant_override("margin_" + side, 14 if c else 18)
 	b_open.text = "Открыть…" if c else "Открыть модель…"
@@ -589,7 +604,7 @@ func _apply_panel(animate: bool) -> void:
 		return
 
 	panel_sep.visible = false
-	var w := minf(size.x * 0.9, 400.0)
+	var w := minf(size.x * 0.92, 400.0)
 	panel_node.custom_minimum_size = Vector2.ZERO
 	panel_node.size = Vector2(w, size.y)
 	var x_open := size.x - w
