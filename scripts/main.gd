@@ -746,7 +746,7 @@ func _update_info() -> void:
 	v.verts.text = _fmt(a.vertices, 0)
 	v.objects.text = _fmt(model.objects, 0)
 	if a.closed:
-		v.closed.text = "замкнутая ✓"
+		v.closed.text = "замкнутая"
 		v.closed.add_theme_color_override("font_color", C_GOOD)
 	else:
 		v.closed.text = "есть дыры"
