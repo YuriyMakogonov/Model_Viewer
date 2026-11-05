@@ -21,20 +21,22 @@ const DEFAULT_MAT := "без материала"
 
 static func load_file(path: String) -> Dictionary:
 	var ext := path.get_extension().to_lower()
-	match ext:
+	if ext not in ["obj", "stl"]:
+		return _fail("Формат .%s не поддерживается. Откройте файл OBJ или STL." % ext)
+	var bytes := FileAccess.get_file_as_bytes(path)
+	if bytes.is_empty():
+		return _fail("Файл пустой или не открывается (%s)." % error_string(FileAccess.get_open_error()))
+	return load_bytes(path.get_file(), bytes, path.get_base_dir())
+
+
+## Разбор уже прочитанного файла. В браузере файл приходит байтами, без пути на диске.
+static func load_bytes(file_name: String, bytes: PackedByteArray, base_dir: String = "") -> Dictionary:
+	match file_name.get_extension().to_lower():
 		"obj":
-			var f := FileAccess.open(path, FileAccess.READ)
-			if f == null:
-				return _fail("Не удалось открыть файл (%s)." % error_string(FileAccess.get_open_error()))
-			var text := f.get_as_text()
-			f.close()
-			return parse_obj(text, path.get_base_dir())
+			return parse_obj(bytes.get_string_from_utf8(), base_dir)
 		"stl":
-			var bytes := FileAccess.get_file_as_bytes(path)
-			if bytes.is_empty():
-				return _fail("Файл пустой или не открывается.")
 			return parse_stl(bytes)
-	return _fail("Формат .%s не поддерживается. Откройте файл OBJ или STL." % ext)
+	return _fail("Формат .%s не поддерживается. Откройте файл OBJ или STL." % file_name.get_extension())
 
 
 static func _fail(msg: String) -> Dictionary:

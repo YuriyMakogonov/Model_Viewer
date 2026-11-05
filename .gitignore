@@ -2,3 +2,4 @@
 /android/
 export/
 *.tmp
+build/

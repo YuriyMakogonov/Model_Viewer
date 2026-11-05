@@ -89,6 +89,10 @@ func _apply_display_scale() -> void:
 	s = clampf(s, 1.0, 3.0)
 	if s <= 1.0:
 		return
+	if OS.has_feature("web"):
+		# В браузере размер окна задаёт страница, меняем только масштаб интерфейса.
+		get_window().content_scale_factor = s
+		return
 	# Размер окна в настройках задан в логических точках: на Retina/HiDPI увеличиваем и окно, и интерфейс.
 	var w := get_window()
 	if w.mode == Window.MODE_WINDOWED:
@@ -548,7 +552,42 @@ func _rebuild_bed() -> void:
 # ================================================================ загрузка
 
 func _open_dialog() -> void:
-	file_dialog.popup_centered_ratio(0.6)
+	if OS.has_feature("web"):
+		_open_web_file_picker()
+	else:
+		file_dialog.popup_centered_ratio(0.6)
+
+
+# В браузере нет доступа к диску: показываем системный выбор файла через <input type="file">
+# и получаем содержимое файла байтами через JavaScriptBridge.
+var _web_file_cb: JavaScriptObject
+
+
+func _open_web_file_picker() -> void:
+	if _web_file_cb == null:
+		_web_file_cb = JavaScriptBridge.create_callback(_on_web_file)
+		JavaScriptBridge.get_interface("window").modelViewerFileLoaded = _web_file_cb
+	JavaScriptBridge.eval("""
+		(function () {
+			var input = document.createElement('input');
+			input.type = 'file';
+			input.accept = '.obj,.stl,.OBJ,.STL';
+			input.onchange = function () {
+				var f = input.files && input.files[0];
+				if (!f) return;
+				var r = new FileReader();
+				r.onload = function () { window.modelViewerFileLoaded(f.name, r.result, f.size); };
+				r.readAsArrayBuffer(f);
+			};
+			input.click();
+		})();
+	""", true)
+
+
+func _on_web_file(args: Array) -> void:
+	var file_name := str(args[0])
+	var bytes := JavaScriptBridge.js_buffer_to_packed_byte_array(args[1])
+	_start_load(func(): return MeshLoader.load_bytes(file_name, bytes), {"name": file_name, "size": bytes.size()})
 
 
 func _on_files_dropped(files: PackedStringArray) -> void:
@@ -574,6 +613,13 @@ func _start_load(producer: Callable, info: Dictionary) -> void:
 	loading = true
 	hint.text = "Загрузка «%s»…" % info.name
 	hint.visible = true
+	if OS.has_feature("web"):
+		# Веб-сборка без потоков (иначе GitHub Pages её не запустит): считаем в основном потоке,
+		# но сначала даём кадру отрисоваться, чтобы надпись «Загрузка…» успела появиться.
+		await get_tree().process_frame
+		await get_tree().process_frame
+		_worker(producer, info)
+		return
 	load_thread = Thread.new()
 	load_thread.start(_worker.bind(producer, info))
 
@@ -594,7 +640,9 @@ func _worker(producer: Callable, info: Dictionary) -> void:
 
 
 func _on_loaded(res: Dictionary, info: Dictionary) -> void:
-	load_thread.wait_to_finish()
+	if load_thread and load_thread.is_started():
+		load_thread.wait_to_finish()
+	load_thread = null
 	loading = false
 	if not res.ok:
 		_show_error(res.error)
