@@ -178,8 +178,10 @@ func _build_ui() -> void:
 	for side in ["left", "right", "top", "bottom"]:
 		bar_wrap.add_theme_constant_override("margin_" + side, 8)
 	left.add_child(bar_wrap)
-	var bar := HBoxContainer.new()
-	bar.add_theme_constant_override("separation", 8)
+	# Кнопки переносятся на вторую строку, если окно узкое (браузер, маленький ноутбук).
+	var bar := HFlowContainer.new()
+	bar.add_theme_constant_override("h_separation", 8)
+	bar.add_theme_constant_override("v_separation", 8)
 	bar_wrap.add_child(bar)
 
 	var b_open := Button.new()
@@ -196,10 +198,6 @@ func _build_ui() -> void:
 	b_sample.tooltip_text = "Загрузить тестовый тор 56 × 16 мм"
 	b_sample.pressed.connect(func(): _start_load(func(): return MeshLoader.make_sample_torus(), {"name": "Пример: тор 56 × 16 мм", "size": 0}))
 	bar.add_child(b_sample)
-
-	var spacer := Control.new()
-	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	bar.add_child(spacer)
 
 	chk_auto = _check(bar, "Вращать", false)
 	chk_auto.toggled.connect(func(on): camera.auto_rotate = on)
