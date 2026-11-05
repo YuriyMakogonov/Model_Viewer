@@ -58,6 +58,16 @@ var warn_label: Label
 var fit_label: Label
 var file_dialog: FileDialog
 
+# адаптивная раскладка: на узком экране (телефон) 3D сверху, панель снизу
+var root_box: BoxContainer
+var left_box: VBoxContainer
+var panel_node: PanelContainer
+var panel_sep: VSeparator
+var b_open: Button
+var b_reset: Button
+var compact := false
+const COMPACT_WIDTH := 760.0
+
 
 func _ready() -> void:
 	_apply_display_scale()
@@ -66,6 +76,8 @@ func _ready() -> void:
 	_build_world()
 	_load_settings()
 	get_window().files_dropped.connect(_on_files_dropped)
+	resized.connect(_update_layout)
+	_update_layout()
 
 	var args := OS.get_cmdline_user_args()
 	var to_open := ""
@@ -163,16 +175,19 @@ func _build_ui() -> void:
 	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	add_child(bg)
 
-	var root := HBoxContainer.new()
+	var root := BoxContainer.new()
 	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	root.add_theme_constant_override("separation", 0)
 	add_child(root)
+	root_box = root
 
 	# --- левая часть: панель инструментов + 3D
 	var left := VBoxContainer.new()
 	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	left.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	left.add_theme_constant_override("separation", 0)
 	root.add_child(left)
+	left_box = left
 
 	var bar_wrap := MarginContainer.new()
 	for side in ["left", "right", "top", "bottom"]:
@@ -184,7 +199,7 @@ func _build_ui() -> void:
 	bar.add_theme_constant_override("v_separation", 8)
 	bar_wrap.add_child(bar)
 
-	var b_open := Button.new()
+	b_open = Button.new()
 	b_open.text = "Открыть модель…"
 	b_open.add_theme_stylebox_override("normal", _box(C_ACCENT, 6, C_ACCENT))
 	b_open.add_theme_stylebox_override("hover", _box(C_ACCENT.lightened(0.1), 6, C_ACCENT))
@@ -213,7 +228,7 @@ func _build_ui() -> void:
 	color_btn.color_changed.connect(_on_color_picked)
 	bar.add_child(color_btn)
 
-	var b_reset := Button.new()
+	b_reset = Button.new()
 	b_reset.text = "Сбросить вид"
 	b_reset.pressed.connect(func(): camera.reset_view())
 	bar.add_child(b_reset)
@@ -247,7 +262,7 @@ func _build_ui() -> void:
 	status = Label.new()
 	status.add_theme_color_override("font_color", C_MUTED)
 	status.add_theme_font_size_override("font_size", 12)
-	status.text = "Левая кнопка — вращение · правая или Shift — сдвиг · колесо или щипок — масштаб · файл можно перетащить в окно"
+	status.text = _controls_help()
 	status.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	st_wrap.add_child(status)
 
@@ -255,10 +270,14 @@ func _build_ui() -> void:
 	var sep := VSeparator.new()
 	sep.add_theme_stylebox_override("separator", _line_box())
 	root.add_child(sep)
+	panel_sep = sep
 
 	var panel := PanelContainer.new()
 	panel.custom_minimum_size = Vector2(380, 0)
+	panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	panel.size_flags_stretch_ratio = 1.1
 	root.add_child(panel)
+	panel_node = panel
 	var scroll := ScrollContainer.new()
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	panel.add_child(scroll)
@@ -412,7 +431,7 @@ func _kv(g: GridContainer, key: String, title: String, strong := false) -> void:
 	if strong:
 		val.add_theme_color_override("font_color", Color.WHITE)
 	val.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	val.custom_minimum_size = Vector2(150, 0)
+	val.custom_minimum_size = Vector2(120, 0)
 	val.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	g.add_child(val)
 	v[key] = val
@@ -424,7 +443,7 @@ func _field(g: GridContainer, title: String, control: Control) -> void:
 	k.add_theme_color_override("font_color", C_MUTED)
 	k.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	g.add_child(k)
-	control.custom_minimum_size.x = maxf(control.custom_minimum_size.x, 150)
+	control.custom_minimum_size.x = maxf(control.custom_minimum_size.x, 140)
 	control.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	g.add_child(control)
 
@@ -434,7 +453,7 @@ func _note(parent: Control, text: String) -> Label:
 	l.text = text
 	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	l.add_theme_font_size_override("font_size", 12)
-	l.custom_minimum_size = Vector2(300, 0)
+	l.custom_minimum_size = Vector2(200, 0)
 	parent.add_child(l)
 	return l
 
@@ -457,6 +476,28 @@ func _spin(mn: float, mx: float, step: float, value: float, suffix: String) -> S
 	s.alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	s.select_all_on_focus = true
 	return s
+
+
+## Широкое окно: 3D слева, панель справа. Узкое (телефон, окно браузера): 3D сверху, панель снизу.
+func _update_layout() -> void:
+	var c := size.x < COMPACT_WIDTH
+	if c == compact and root_box.vertical == c:
+		return
+	compact = c
+	root_box.vertical = c
+	panel_sep.visible = not c
+	panel_node.custom_minimum_size.x = 0.0 if c else 380.0
+	panel_node.size_flags_horizontal = Control.SIZE_FILL
+	b_open.text = "Открыть…" if c else "Открыть модель…"
+	b_reset.text = "Вид" if c else "Сбросить вид"
+	if model.is_empty() or status.text.begins_with("Левая") or status.text.begins_with("Один"):
+		status.text = _controls_help()
+
+
+func _controls_help() -> String:
+	if compact or DisplayServer.is_touchscreen_available():
+		return "Один палец — вращение · два пальца — сдвиг и масштаб"
+	return "Левая кнопка — вращение · правая или Shift — сдвиг · колесо или щипок — масштаб · файл можно перетащить в окно"
 
 
 # ================================================================ 3D-сцена
@@ -569,7 +610,9 @@ func _open_web_file_picker() -> void:
 		(function () {
 			var input = document.createElement('input');
 			input.type = 'file';
-			input.accept = '.obj,.stl,.OBJ,.STL';
+			// На Android фильтр по расширению часто скрывает OBJ/STL (у них нет MIME-типа),
+			// поэтому там показываем все файлы, а формат проверяем после выбора.
+			if (!/Android/i.test(navigator.userAgent)) input.accept = '.obj,.stl,.OBJ,.STL';
 			input.onchange = function () {
 				var f = input.files && input.files[0];
 				if (!f) return;

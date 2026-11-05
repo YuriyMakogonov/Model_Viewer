@@ -3,6 +3,7 @@ extends Camera3D
 ## Камера, которая вращается вокруг модели.
 ## Мышь: левая кнопка — вращение, правая/средняя (или Shift + левая) — сдвиг, колесо — масштаб.
 ## Трекпад: два пальца — вращение, Shift + два пальца — сдвиг, щипок — масштаб.
+## Сенсорный экран: один палец — вращение, два пальца — сдвиг и масштаб (щипок).
 
 var target := Vector3.ZERO
 var yaw := deg_to_rad(35.0)
@@ -15,6 +16,11 @@ const MIN_PITCH := -1.55
 const MAX_PITCH := 1.55
 
 var _home := {}
+
+# активные касания: индекс пальца -> позиция; для жестов двумя пальцами
+var _touches := {}
+var _pinch_dist := 0.0
+var _pinch_center := Vector2.ZERO
 
 
 func _process(delta: float) -> void:
@@ -62,7 +68,37 @@ func _pan(rel: Vector2) -> void:
 	target += (-b.x * rel.x + b.y * rel.y) * k
 
 
+func _touch_gesture_reset() -> void:
+	if _touches.size() == 2:
+		var p: Array = _touches.values()
+		_pinch_dist = (p[0] as Vector2).distance_to(p[1])
+		_pinch_center = ((p[0] as Vector2) + (p[1] as Vector2)) * 0.5
+
+
 func handle_input(event: InputEvent) -> bool:
+	# Касания. Первый палец браузер/Godot дублирует событиями мыши — они дают вращение.
+	if event is InputEventScreenTouch:
+		var idx: int = event.index
+		if event.pressed:
+			_touches[idx] = event.position
+		else:
+			_touches.erase(idx)
+		_touch_gesture_reset()
+		return false
+	if event is InputEventScreenDrag:
+		var idx: int = event.index
+		_touches[idx] = event.position
+		if _touches.size() == 2:
+			var p: Array = _touches.values()
+			var d := (p[0] as Vector2).distance_to(p[1])
+			var c := ((p[0] as Vector2) + (p[1] as Vector2)) * 0.5
+			if _pinch_dist > 1.0 and d > 1.0:
+				_zoom(_pinch_dist / d)
+			_pan(c - _pinch_center)
+			_pinch_dist = d
+			_pinch_center = c
+			return true
+		return false
 	if event is InputEventMouseButton and event.pressed:
 		match event.button_index:
 			MOUSE_BUTTON_WHEEL_UP:
@@ -72,6 +108,8 @@ func handle_input(event: InputEvent) -> bool:
 				_zoom(1.0 / 0.9 if event.factor == 0.0 else pow(1.0 / 0.9, event.factor))
 				return true
 	elif event is InputEventMouseMotion:
+		if _touches.size() >= 2:
+			return true  # во время щипка не вращаем
 		var m: int = event.button_mask
 		var left: bool = (m & MOUSE_BUTTON_MASK_LEFT) != 0
 		var shift: bool = event.shift_pressed
