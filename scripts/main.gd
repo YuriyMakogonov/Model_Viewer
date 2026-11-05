@@ -66,6 +66,7 @@ var panel_sep: VSeparator
 var b_open: Button
 var b_reset: Button
 var compact := false
+var panel_margin: MarginContainer
 const COMPACT_WIDTH := 760.0
 
 
@@ -282,6 +283,7 @@ func _build_ui() -> void:
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	panel.add_child(scroll)
 	var pm := MarginContainer.new()
+	panel_margin = pm
 	pm.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	for side in ["left", "right"]:
 		pm.add_theme_constant_override("margin_" + side, 18)
@@ -422,6 +424,8 @@ func _kv(g: GridContainer, key: String, title: String, strong := false) -> void:
 	k.text = title
 	k.add_theme_color_override("font_color", C_MUTED)
 	k.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	k.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	k.tooltip_text = title
 	g.add_child(k)
 	var val := Label.new()
 	val.text = "—"
@@ -442,8 +446,12 @@ func _field(g: GridContainer, title: String, control: Control) -> void:
 	k.text = title
 	k.add_theme_color_override("font_color", C_MUTED)
 	k.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	k.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	k.tooltip_text = title
 	g.add_child(k)
 	control.custom_minimum_size.x = maxf(control.custom_minimum_size.x, 140)
+	if control is OptionButton:
+		(control as OptionButton).clip_text = true
 	control.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	g.add_child(control)
 
@@ -488,6 +496,8 @@ func _update_layout() -> void:
 	panel_sep.visible = not c
 	panel_node.custom_minimum_size.x = 0.0 if c else 380.0
 	panel_node.size_flags_horizontal = Control.SIZE_FILL
+	for side in ["left", "right"]:
+		panel_margin.add_theme_constant_override("margin_" + side, 12 if c else 18)
 	b_open.text = "Открыть…" if c else "Открыть модель…"
 	b_reset.text = "Вид" if c else "Сбросить вид"
 	if model.is_empty() or status.text.begins_with("Левая") or status.text.begins_with("Один"):
